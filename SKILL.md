@@ -1,0 +1,101 @@
+---
+name: macos-controller
+description: Use when an agent needs to control local macOS apps from Codex through bundled AppleScript-backed CLIs, currently including Reminders and Music.
+---
+
+# macOS Controller
+
+使用本 skill 控制本机 macOS 应用。必须优先使用内置脚本，不要直接手写 AppleScript，除非是在调试脚本本身。
+
+## 前置条件
+
+- 仅适用于 macOS，本机需要存在目标系统应用。
+- 脚本使用系统内置 `/usr/bin/osascript`，不依赖 Swift、PyObjC 或第三方包。
+- 首次运行可能触发 macOS 隐私授权。若失败信息提示无权限，引导用户到「系统设置 > 隐私与安全性」中允许当前终端或 Codex 访问目标应用和自动化控制。
+
+## 提醒事项命令
+
+在本 skill 目录执行命令，或使用脚本绝对路径。
+
+```bash
+python3 scripts/reminders.py create --name "提交周报" --body "整理本周进展" --due "2026-06-01 09:00:00"
+python3 scripts/reminders.py list --query "周报" --completed false
+python3 scripts/reminders.py update --id "<reminder-id>" --name "提交周报给团队" --priority 5
+python3 scripts/reminders.py complete --id "<reminder-id>"
+```
+
+- `create`：创建提醒事项，支持 `--name`、`--list`、`--body`、`--due`、`--priority`。
+- `list`：查询提醒事项，支持 `--list`、`--query`、`--completed true|false`、`--limit`。
+- `update`：按 `--id` 更新提醒事项，支持 `--name`、`--body`、`--due`、`--clear-due`、`--priority`、`--completed true|false`。
+- `complete`：按 `--id` 标记提醒事项完成。
+
+查询和修改必须优先使用提醒事项 `id`，避免同名提醒事项被误改。不要实现或执行删除、创建列表、标签、附件、位置提醒等本 skill 未提供的能力。
+
+## 音乐命令
+
+使用 `scripts/music.py` 控制本机 macOS「音乐」应用。首版只提供播放控制，不查询曲库、不搜索歌曲、不修改资料库。
+
+```bash
+python3 scripts/music.py status
+python3 scripts/music.py play-pause
+python3 scripts/music.py play
+python3 scripts/music.py pause
+python3 scripts/music.py next
+python3 scripts/music.py previous
+python3 scripts/music.py volume --level 30
+```
+
+- `status`：读取播放状态、音量和当前曲目。
+- `play-pause`：切换播放或暂停。
+- `play`：开始播放。
+- `pause`：暂停播放。
+- `next`：播放下一首。
+- `previous`：播放上一首。
+- `volume`：设置音量，支持 `--level 0..100`。
+
+不要实现或执行搜索播放、播放列表管理、资料库写入、删除、收藏等本 skill 未提供的音乐能力。
+
+## 返回结构
+
+脚本始终输出 JSON：
+
+```json
+{
+  "success": true,
+  "data": {},
+  "message": "ok"
+}
+```
+
+提醒事项查询结果至少包含：
+
+- `id`
+- `name`
+- `list`
+- `body`
+- `completed`
+- `due_date`
+- `priority`
+
+音乐状态结果可能包含：
+
+- `player_state`
+- `volume`
+- `current_track`
+
+读取结果时只汇报与用户请求相关的字段。失败时读取 `message`，不要把完整系统错误堆栈原样转述给用户。
+
+## 工作流
+
+1. 识别用户要控制的应用：提醒事项或音乐。
+2. 如果要更新或完成提醒事项，但用户没有提供 `id`，先用 `list` 查询候选项，再让用户确认目标。
+3. 构造最小命令参数；只传用户明确要求的字段。
+4. 执行脚本并读取 JSON 输出。
+5. 如果返回权限错误，提示用户到系统设置开启目标应用和自动化权限，然后重试。
+
+## 数据与安全
+
+- 本 skill 只操作本机 macOS 应用，不访问网络。
+- 更新和完成操作按唯一 `id` 定位，降低误修改风险。
+- 不输出无关提醒事项详情；查询时优先使用 `--query`、`--list` 和较小 `--limit` 缩小结果范围。
+- 音乐控制只执行 O(1) 播放命令和状态读取，不扫描曲库，避免暴露无关媒体资料。
