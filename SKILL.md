@@ -10,8 +10,8 @@ description: Use when an agent needs to control local macOS apps from Codex thro
 ## 前置条件
 
 - 仅适用于 macOS，本机需要存在目标系统应用。
-- 脚本使用系统内置 `/usr/bin/osascript`，不依赖 Swift、PyObjC 或第三方包。
-- 首次运行可能触发 macOS 隐私授权。若失败信息提示无权限，引导用户到「系统设置 > 隐私与安全性」中允许当前终端或 Codex 访问目标应用和自动化控制。
+- 提醒事项脚本使用 Apple EventKit Swift CLI，首次运行会自动构建本仓库内的 SwiftPM 可执行文件；音乐脚本继续使用系统内置 `/usr/bin/osascript`。
+- 首次运行可能触发 macOS 隐私授权。若失败信息提示无权限，引导用户到「系统设置 > 隐私与安全性」中允许当前终端或 Codex 访问「提醒事项」；音乐控制还需要允许目标应用和自动化控制。
 
 ## 提醒事项命令
 
@@ -20,16 +20,17 @@ description: Use when an agent needs to control local macOS apps from Codex thro
 ```bash
 python3 scripts/reminders.py create --name "提交周报" --body "整理本周进展" --due "2026-06-01 09:00:00"
 python3 scripts/reminders.py list --query "周报" --completed false
+python3 scripts/reminders.py list --offset 20
 python3 scripts/reminders.py update --id "<reminder-id>" --name "提交周报给团队" --priority 5
 python3 scripts/reminders.py complete --id "<reminder-id>"
 ```
 
 - `create`：创建提醒事项，支持 `--name`、`--list`、`--body`、`--due`、`--priority`。
-- `list`：查询提醒事项，支持 `--list`、`--query`、`--completed true|false`、`--limit`。
+- `list`：查询提醒事项，支持 `--list`、`--query`、`--completed true|false`、`--limit`、`--offset`。默认只查询未完成事项；查询已完成事项必须显式传 `--completed true`。无 `--list` 和 `--query` 时 `--limit` 最大为 20；传入 `--list` 或 `--query` 后最大为 50；`--offset` 范围为 0..500。
 - `update`：按 `--id` 更新提醒事项，支持 `--name`、`--body`、`--due`、`--clear-due`、`--priority`、`--completed true|false`。
 - `complete`：按 `--id` 标记提醒事项完成。
 
-查询和修改必须优先使用提醒事项 `id`，避免同名提醒事项被误改。不要实现或执行删除、创建列表、标签、附件、位置提醒等本 skill 未提供的能力。
+查询和修改必须优先使用提醒事项 `id`，避免同名提醒事项被误改。如果第一页没有找到目标且返回 `has_more: true`，用 `next_offset` 继续查询下一页；仍应优先添加 `--query` 或 `--list` 缩小范围。不要实现或执行删除、创建列表、标签、附件、位置提醒等本 skill 未提供的能力。
 
 ## 音乐命令
 
@@ -77,6 +78,14 @@ python3 scripts/music.py volume --level 30
 - `due_date`
 - `priority`
 
+分页字段包含：
+
+- `count`
+- `offset`
+- `limit`
+- `has_more`
+- `next_offset`
+
 音乐状态结果可能包含：
 
 - `player_state`
@@ -88,7 +97,7 @@ python3 scripts/music.py volume --level 30
 ## 工作流
 
 1. 识别用户要控制的应用：提醒事项或音乐。
-2. 如果要更新或完成提醒事项，但用户没有提供 `id`，先用 `list` 查询候选项，再让用户确认目标。
+2. 如果要更新或完成提醒事项，但用户没有提供 `id`，先用 `list` 查询候选项；第一页没有目标且 `has_more` 为 true 时，用 `next_offset` 继续翻页，再让用户确认目标。
 3. 构造最小命令参数；只传用户明确要求的字段。
 4. 执行脚本并读取 JSON 输出。
 5. 如果返回权限错误，提示用户到系统设置开启目标应用和自动化权限，然后重试。
@@ -97,5 +106,5 @@ python3 scripts/music.py volume --level 30
 
 - 本 skill 只操作本机 macOS 应用，不访问网络。
 - 更新和完成操作按唯一 `id` 定位，降低误修改风险。
-- 不输出无关提醒事项详情；查询时优先使用 `--query`、`--list` 和较小 `--limit` 缩小结果范围。
+- 不输出无关提醒事项详情；查询默认只返回未完成事项，并优先使用 `--query`、`--list`、较小 `--limit` 和 `--offset` 控制单次扫描范围。
 - 音乐控制只执行 O(1) 播放命令和状态读取，不扫描曲库，避免暴露无关媒体资料。
