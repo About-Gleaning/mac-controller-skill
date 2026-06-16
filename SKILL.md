@@ -34,7 +34,7 @@ python3 scripts/reminders.py complete --id "<reminder-id>"
 
 ## 音乐命令
 
-使用 `scripts/music.py` 控制本机 macOS「音乐」应用。首版只提供播放控制，不查询曲库、不搜索歌曲、不修改资料库。
+使用 `scripts/music.py` 控制本机 macOS「音乐」应用。支持播放控制、音量、随机播放、循环模式，以及按歌曲、歌手、专辑搜索并播放本机 Music 曲库中的首个匹配歌曲；不修改资料库。
 
 ```bash
 python3 scripts/music.py status
@@ -44,6 +44,11 @@ python3 scripts/music.py pause
 python3 scripts/music.py next
 python3 scripts/music.py previous
 python3 scripts/music.py volume --level 30
+python3 scripts/music.py shuffle --enabled true
+python3 scripts/music.py repeat --mode one
+python3 scripts/music.py play-song --name "富士山下" --artist "陈奕迅"
+python3 scripts/music.py play-artist --name "陈奕迅"
+python3 scripts/music.py play-album --name "认了吧" --artist "陈奕迅"
 ```
 
 - `status`：读取播放状态、音量和当前曲目。
@@ -53,8 +58,13 @@ python3 scripts/music.py volume --level 30
 - `next`：播放下一首。
 - `previous`：播放上一首。
 - `volume`：设置音量，支持 `--level 0..100`。
+- `shuffle`：设置随机播放开关，支持 `--enabled true|false`。
+- `repeat`：设置循环播放模式，支持 `--mode off|one|all`，分别表示关闭、单曲循环、全部循环。
+- `play-song`：按歌曲名搜索并播放首个匹配歌曲，支持 `--name`，可选 `--artist` 缩小范围。
+- `play-artist`：按歌手名搜索并播放首个匹配歌曲，支持 `--name`。
+- `play-album`：按专辑名搜索并播放首个匹配歌曲，支持 `--name`，可选 `--artist` 缩小范围。
 
-不要实现或执行搜索播放、播放列表管理、资料库写入、删除、收藏等本 skill 未提供的音乐能力。
+搜索播放使用模糊匹配；如果命中多个结果，播放第一个匹配项。如果用户要求播放列表管理、资料库写入、删除、收藏等本 skill 未提供的音乐能力，应说明不支持，不要直接手写 AppleScript 绕过脚本。
 
 ## 返回结构
 
@@ -90,6 +100,8 @@ python3 scripts/music.py volume --level 30
 
 - `player_state`
 - `volume`
+- `shuffle_enabled`
+- `repeat_mode`
 - `current_track`
 
 读取结果时只汇报与用户请求相关的字段。失败时读取 `message`，不要把完整系统错误堆栈原样转述给用户。
@@ -107,4 +119,4 @@ python3 scripts/music.py volume --level 30
 - 本 skill 只操作本机 macOS 应用，不访问网络。
 - 更新和完成操作按唯一 `id` 定位，降低误修改风险。
 - 不输出无关提醒事项详情；查询默认只返回未完成事项，并优先使用 `--query`、`--list`、较小 `--limit` 和 `--offset` 控制单次扫描范围。
-- 音乐控制只执行 O(1) 播放命令和状态读取，不扫描曲库，避免暴露无关媒体资料。
+- 常规音乐控制只执行 O(1) 播放命令和状态读取；按歌曲、歌手、专辑搜索播放会扫描本机 Music 曲库，时间复杂度与曲库规模线性相关。执行搜索播放时只汇报当前播放结果，不输出无关曲库列表，避免暴露不必要的媒体资料。

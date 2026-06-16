@@ -30,6 +30,10 @@ def int_literal(value: int | None) -> str:
     return str(value)
 
 
+def text_literal(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
 def run_applescript(script: str) -> Any:
     # Music 的脚本术语绑定到应用字典；实际控制使用绝对路径，避免本地化名称歧义。
     wrapped_script = f'using terms from application "{APP_PATH}"\n{script}\nend using terms from'
@@ -58,6 +62,9 @@ def run_applescript(script: str) -> Any:
 def normalize_error(raw: str) -> str:
     text = " ".join(raw.strip().split())
     lower = text.lower()
+    if "-10000" in text:
+        message = text.replace("execution error:", "", 1).replace("(-10000)", "").strip()
+        return message or "音乐操作失败。"
     if any(token in lower for token in ["not authorized", "not allowed", "privacy", "automation"]):
         return "没有权限控制音乐应用。请到「系统设置 > 隐私与安全性」允许当前终端或 Codex 访问「音乐」和自动化控制。"
     if "-1743" in text or "-10827" in text:
@@ -123,9 +130,11 @@ def build_status_script(_: argparse.Namespace) -> str:
 tell application "{APP_PATH}"
     set stateText to player state as text
     set volumeValue to sound volume
+    set shuffleValue to shuffle enabled
+    set repeatValue to song repeat as text
     set trackPayload to my trackJson()
 end tell
-return "{{" & quote & "player_state" & quote & ":" & my jsonEscape(stateText) & "," & quote & "volume" & quote & ":" & (volumeValue as text) & "," & quote & "current_track" & quote & ":" & trackPayload & "}}"
+return "{{" & quote & "player_state" & quote & ":" & my jsonEscape(stateText) & "," & quote & "volume" & quote & ":" & (volumeValue as text) & "," & quote & "shuffle_enabled" & quote & ":" & (shuffleValue as text) & "," & quote & "repeat_mode" & quote & ":" & my jsonEscape(repeatValue) & "," & quote & "current_track" & quote & ":" & trackPayload & "}}"
 '''
 
 
@@ -190,6 +199,65 @@ return "{{" & quote & "volume" & quote & ":" & (volumeValue as text) & "}}"
 '''
 
 
+def build_shuffle_script(args: argparse.Namespace) -> str:
+    enabled = "true" if args.enabled else "false"
+    return common_library() + f'''
+tell application "{APP_PATH}"
+    set shuffle enabled to {enabled}
+    set shuffleValue to shuffle enabled
+end tell
+return "{{" & quote & "shuffle_enabled" & quote & ":" & (shuffleValue as text) & "}}"
+'''
+
+
+def build_repeat_script(args: argparse.Namespace) -> str:
+    return common_library() + f'''
+tell application "{APP_PATH}"
+    set song repeat to {args.mode}
+    set repeatValue to song repeat as text
+end tell
+return "{{" & quote & "repeat_mode" & quote & ":" & my jsonEscape(repeatValue) & "}}"
+'''
+
+
+def build_play_song_script(args: argparse.Namespace) -> str:
+    name = text_literal(args.name)
+    artist_filter = ""
+    if args.artist:
+        artist = text_literal(args.artist)
+        artist_filter = f" and artist contains {artist}"
+    return build_search_play_script(f"name contains {name}{artist_filter}", "没有找到匹配的歌曲。")
+
+
+def build_play_artist_script(args: argparse.Namespace) -> str:
+    artist = text_literal(args.name)
+    return build_search_play_script(f"artist contains {artist}", "没有找到匹配歌手的歌曲。")
+
+
+def build_play_album_script(args: argparse.Namespace) -> str:
+    album = text_literal(args.name)
+    artist_filter = ""
+    if args.artist:
+        artist = text_literal(args.artist)
+        artist_filter = f" and artist contains {artist}"
+    return build_search_play_script(f"album contains {album}{artist_filter}", "没有找到匹配专辑的歌曲。")
+
+
+def build_search_play_script(filter_clause: str, not_found_message: str) -> str:
+    message = text_literal(not_found_message)
+    return common_library() + f'''
+tell application "{APP_PATH}"
+    set matches to tracks of library playlist 1 whose {filter_clause}
+    if (count of matches) is 0 then error {message} number -10000
+    set targetTrack to item 1 of matches
+    play targetTrack
+    set stateText to player state as text
+    set trackPayload to my trackJson()
+end tell
+return "{{" & quote & "player_state" & quote & ":" & my jsonEscape(stateText) & "," & quote & "current_track" & quote & ":" & trackPayload & "}}"
+'''
+
+
 def validate_volume(value: str) -> int:
     try:
         level = int(value)
@@ -198,6 +266,15 @@ def validate_volume(value: str) -> int:
     if level < 0 or level > 100:
         raise argparse.ArgumentTypeError("音量必须在 0 到 100 之间。")
     return level
+
+
+def validate_bool(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized == "true":
+        return True
+    if normalized == "false":
+        return False
+    raise argparse.ArgumentTypeError("开关值必须是 true 或 false。")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -213,6 +290,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     volume = subparsers.add_parser("volume", help="设置音量。")
     volume.add_argument("--level", required=True, type=validate_volume, help="音量，范围 0 到 100。")
+
+    shuffle = subparsers.add_parser("shuffle", help="设置随机播放开关。")
+    shuffle.add_argument("--enabled", required=True, type=validate_bool, help="是否开启随机播放：true 或 false。")
+
+    repeat = subparsers.add_parser("repeat", help="设置循环播放模式。")
+    repeat.add_argument("--mode", required=True, choices=["off", "one", "all"], help="循环模式：off、one 或 all。")
+
+    play_song = subparsers.add_parser("play-song", help="按歌曲名搜索并播放首个匹配歌曲。")
+    play_song.add_argument("--name", required=True, help="歌曲名，支持模糊匹配。")
+    play_song.add_argument("--artist", help="可选歌手名，用于缩小匹配范围。")
+
+    play_artist = subparsers.add_parser("play-artist", help="播放指定歌手的首个匹配歌曲。")
+    play_artist.add_argument("--name", required=True, help="歌手名，支持模糊匹配。")
+
+    play_album = subparsers.add_parser("play-album", help="播放指定专辑的首个匹配歌曲。")
+    play_album.add_argument("--name", required=True, help="专辑名，支持模糊匹配。")
+    play_album.add_argument("--artist", help="可选歌手名，用于缩小匹配范围。")
     return parser
 
 
@@ -228,6 +322,11 @@ def main() -> None:
         "next": build_next_script,
         "previous": build_previous_script,
         "volume": build_volume_script,
+        "shuffle": build_shuffle_script,
+        "repeat": build_repeat_script,
+        "play-song": build_play_song_script,
+        "play-artist": build_play_artist_script,
+        "play-album": build_play_album_script,
     }
     data = run_applescript(builders[args.command](args))
     输出(True, data=data)
