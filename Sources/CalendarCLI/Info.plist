@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>local.macos-controller.calendar-cli</string>
+    <key>CFBundleName</key>
+    <string>calendar-cli</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>用于按用户明确请求创建、查询、更新和删除本机日历日程。</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>用于按用户明确请求创建、查询、更新和删除本机日历日程。</string>
+</dict>
+</plist>

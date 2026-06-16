@@ -1,7 +1,7 @@
 interface:
   display_name: "macOS Controller"
-  short_description: "控制本机 macOS 应用，包括提醒事项和音乐"
-  default_prompt: "Use $macos-controller to control local macOS apps, including creating or updating reminders and controlling Music playback."
+  short_description: "控制本机 macOS 应用，包括日历、备忘录、提醒事项和音乐"
+  default_prompt: "Use $macos-controller to control local macOS apps, including calendar events, notes, reminders, and Music playback."
 
 policy:
   allow_implicit_invocation: true
