@@ -189,10 +189,18 @@ return "{{" & quote & "current_track" & quote & ":" & trackPayload & "}}"
 
 
 def build_volume_script(args: argparse.Namespace) -> str:
-    level = int_literal(args.level)
+    if args.level is not None:
+        level = int_literal(args.level)
+        volume_action = f"set sound volume to {level}"
+    else:
+        delta = int_literal(args.delta)
+        volume_action = f"""set targetVolume to (sound volume) + {delta}
+    if targetVolume < 0 then set targetVolume to 0
+    if targetVolume > 100 then set targetVolume to 100
+    set sound volume to targetVolume"""
     return common_library() + f'''
 tell application "{APP_PATH}"
-    set sound volume to {level}
+    {volume_action}
     set volumeValue to sound volume
 end tell
 return "{{" & quote & "volume" & quote & ":" & (volumeValue as text) & "}}"
@@ -268,6 +276,16 @@ def validate_volume(value: str) -> int:
     return level
 
 
+def validate_volume_delta(value: str) -> int:
+    try:
+        delta = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("音量增量必须是整数。") from exc
+    if delta < -100 or delta > 100:
+        raise argparse.ArgumentTypeError("音量增量必须在 -100 到 100 之间。")
+    return delta
+
+
 def validate_bool(value: str) -> bool:
     normalized = value.strip().lower()
     if normalized == "true":
@@ -288,8 +306,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("next", help="播放下一首。")
     subparsers.add_parser("previous", help="播放上一首。")
 
-    volume = subparsers.add_parser("volume", help="设置音量。")
-    volume.add_argument("--level", required=True, type=validate_volume, help="音量，范围 0 到 100。")
+    volume = subparsers.add_parser("volume", help="设置或调整音量。")
+    volume_group = volume.add_mutually_exclusive_group(required=True)
+    volume_group.add_argument("--level", type=validate_volume, help="音量，范围 0 到 100。")
+    volume_group.add_argument("--delta", type=validate_volume_delta, help="音量增量，范围 -100 到 100。")
 
     shuffle = subparsers.add_parser("shuffle", help="设置随机播放开关。")
     shuffle.add_argument("--enabled", required=True, type=validate_bool, help="是否开启随机播放：true 或 false。")

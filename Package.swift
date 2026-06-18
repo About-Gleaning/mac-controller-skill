@@ -9,6 +9,7 @@ let package = Package(
     ],
     products: [
         .executable(name: "calendar-cli", targets: ["CalendarCLI"]),
+        .executable(name: "notifications-cli", targets: ["NotificationsCLI"]),
         .executable(name: "reminders-cli", targets: ["RemindersCLI"]),
     ],
     targets: [
@@ -26,6 +27,20 @@ let package = Package(
                 ])
             ]
         ),
+        .target(name: "NotificationCore"),
+        .executableTarget(
+            name: "NotificationsCLI",
+            dependencies: ["NotificationCore"],
+            exclude: ["Info.plist"],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-Xlinker", "-sectcreate",
+                    "-Xlinker", "__TEXT",
+                    "-Xlinker", "__info_plist",
+                    "-Xlinker", "Sources/NotificationsCLI/Info.plist",
+                ])
+            ]
+        ),
         .target(name: "RemindersCore"),
         .executableTarget(
             name: "RemindersCLI",
@@ -34,6 +49,10 @@ let package = Package(
         .testTarget(
             name: "CalendarCoreTests",
             dependencies: ["CalendarCore"]
+        ),
+        .testTarget(
+            name: "NotificationCoreTests",
+            dependencies: ["NotificationCore"]
         ),
         .testTarget(
             name: "RemindersCoreTests",

@@ -1,6 +1,6 @@
 ---
 name: macos-controller
-description: Use when an agent needs to control local macOS apps from Codex through bundled CLIs, currently including Calendar, Notes, Reminders, and Music.
+description: Use when an agent needs to control local macOS apps from Codex through bundled CLIs, currently including Calendar, Notes, Reminders, Music, and screen capture.
 ---
 
 # macOS Controller
@@ -10,8 +10,9 @@ description: Use when an agent needs to control local macOS apps from Codex thro
 ## 前置条件
 
 - 仅适用于 macOS，本机需要存在目标系统应用。
-- 日历和提醒事项脚本使用 Apple EventKit Swift CLI，首次运行会自动构建本仓库内的 SwiftPM 可执行文件；备忘录和音乐脚本使用系统内置 `/usr/bin/osascript`。
-- 首次运行可能触发 macOS 隐私授权。若失败信息提示无权限，引导用户到「系统设置 > 隐私与安全性」中允许当前终端或 Codex 访问「日历」「提醒事项」「备忘录」或目标应用自动化控制。
+- 日历和提醒事项脚本使用 Apple EventKit Swift CLI，通知脚本使用 Apple UserNotifications Swift CLI，首次运行会自动构建本仓库内的 SwiftPM 可执行文件；备忘录和音乐脚本使用系统内置 `/usr/bin/osascript`。
+- 首次运行可能触发 macOS 隐私授权。若失败信息提示无权限，引导用户到「系统设置 > 隐私与安全性」中允许当前终端或 Codex 访问「日历」「提醒事项」「备忘录」或目标应用自动化控制；通知权限到「系统设置 > 通知」中允许。
+- 本 skill 产生的文件类产物统一保存到 `/var/skills_artifacts/macos-controller/`。
 
 ## 日历命令
 
@@ -95,6 +96,7 @@ python3 scripts/music.py pause
 python3 scripts/music.py next
 python3 scripts/music.py previous
 python3 scripts/music.py volume --level 30
+python3 scripts/music.py volume --delta 10
 python3 scripts/music.py shuffle --enabled true
 python3 scripts/music.py repeat --mode one
 python3 scripts/music.py play-song --name "富士山下" --artist "陈奕迅"
@@ -108,7 +110,7 @@ python3 scripts/music.py play-album --name "认了吧" --artist "陈奕迅"
 - `pause`：暂停播放。
 - `next`：播放下一首。
 - `previous`：播放上一首。
-- `volume`：设置音量，支持 `--level 0..100`。
+- `volume`：设置或调整音量，支持 `--level 0..100` 或 `--delta -100..100`；相对调整会自动限制在 0..100。
 - `shuffle`：设置随机播放开关，支持 `--enabled true|false`。
 - `repeat`：设置循环播放模式，支持 `--mode off|one|all`，分别表示关闭、单曲循环、全部循环。
 - `play-song`：按歌曲名搜索并播放首个匹配歌曲，支持 `--name`，可选 `--artist` 缩小范围。
@@ -116,6 +118,35 @@ python3 scripts/music.py play-album --name "认了吧" --artist "陈奕迅"
 - `play-album`：按专辑名搜索并播放首个匹配歌曲，支持 `--name`，可选 `--artist` 缩小范围。
 
 搜索播放使用模糊匹配；如果命中多个结果，播放第一个匹配项。如果用户要求播放列表管理、资料库写入、删除、收藏等本 skill 未提供的音乐能力，应说明不支持，不要直接手写 AppleScript 绕过脚本。
+
+## 屏幕截图命令
+
+使用 `scripts/screenshot.py` 截取本机 macOS 当前全屏，并返回生成的图片路径。截图默认保存到 `/var/skills_artifacts/macos-controller/`。
+
+```bash
+python3 scripts/screenshot.py capture
+```
+
+- `capture`：截取当前全屏，保存为 PNG 文件，并返回 `data.path`。
+
+当前只支持全屏截图，不支持区域截图、窗口截图或交互式选择。如果截图命令返回没有权限，到「系统设置 > 隐私与安全性 > 屏幕录制」允许当前终端或 Codex 后重试。
+
+## 通知命令
+
+使用 `scripts/notifications.py` 通过 macOS UserNotifications 发送一条本机立即通知。
+
+```bash
+python3 scripts/notifications.py auth-status
+python3 scripts/notifications.py request-access
+python3 scripts/notifications.py send --title "测试通知" --body "来自 macOS Controller"
+python3 scripts/notifications.py send --title "构建完成" --subtitle "mac-controller-skill" --body "可以查看结果"
+```
+
+- `auth-status`：读取当前进程的通知授权状态，不发送通知。
+- `request-access`：主动请求通知权限，用于触发 macOS 授权窗口。
+- `send`：发送一条立即通知，支持 `--title`、`--subtitle`、`--body`，其中 `--title` 必填。
+
+当前只支持立即通知，不支持延迟通知、定时通知、重复通知、操作按钮或通知撤回。如果通知命令返回没有权限，先运行 `request-access` 触发系统授权窗口；授权主体是 `notifications-cli`，不是 VSCode。若系统不弹窗，到「系统设置 > 通知」允许 `notifications-cli` 发送通知后重试。
 
 ## 返回结构
 
@@ -155,6 +186,15 @@ python3 scripts/music.py play-album --name "认了吧" --artist "陈奕迅"
 - `repeat_mode`
 - `current_track`
 
+屏幕截图结果包含：
+
+- `path`
+
+通知发送结果包含：
+
+- `notification_id`
+- `delivered`
+
 日历查询结果至少包含：
 
 - `id`
@@ -175,15 +215,15 @@ python3 scripts/music.py play-album --name "认了吧" --artist "陈奕迅"
 - `created_date`
 - `modified_date`
 
-读取结果时只汇报与用户请求相关的字段。失败时读取 `message`，不要把完整系统错误堆栈原样转述给用户。
+读取结果时只汇报与用户请求相关的字段。截图完成后直接返回 `data.path`。失败时读取 `message`，不要把完整系统错误堆栈原样转述给用户。
 
 ## 工作流
 
-1. 识别用户要控制的应用：日历、备忘录、提醒事项或音乐。
+1. 识别用户要控制的应用或系统能力：日历、备忘录、提醒事项、音乐、屏幕截图或通知。
 2. 如果要更新或完成提醒事项、更新或删除日程、追加备忘录，但用户没有提供 `id`，先用对应 `list` 查询候选项；第一页没有目标且 `has_more` 为 true 时，用 `next_offset` 继续翻页，再让用户确认目标。
 3. 构造最小命令参数；只传用户明确要求的字段。
 4. 执行脚本并读取 JSON 输出。
-5. 如果返回权限错误，提示用户到系统设置开启目标应用和自动化权限，然后重试。
+5. 如果返回权限错误，提示用户到系统设置开启目标应用、自动化或屏幕录制权限，然后重试。
 
 ## 数据与安全
 
@@ -192,4 +232,6 @@ python3 scripts/music.py play-album --name "认了吧" --artist "陈奕迅"
 - 不输出无关日历、备忘录或提醒事项详情；查询默认使用近期窗口、未完成过滤、`--query`、`--calendar`、`--folder`、`--list`、较小 `--limit` 和 `--offset` 控制单次扫描范围。
 - 日历查询使用 EventKit 时间范围检索，时间复杂度主要取决于查询窗口内的日程数量；默认 30 天窗口用于平衡日常可用性和本机数据最小暴露。
 - 备忘录查询通过 Notes AppleScript 扫描本机文件夹，时间复杂度与备忘录数量线性相关；执行查询时应优先传 `--query` 或 `--folder`。
-- 常规音乐控制只执行 O(1) 播放命令和状态读取；按歌曲、歌手、专辑搜索播放会扫描本机 Music 曲库，时间复杂度与曲库规模线性相关。执行搜索播放时只汇报当前播放结果，不输出无关曲库列表，避免暴露不必要的媒体资料。
+- 常规音乐控制只执行 O(1) 播放命令、音量调整和状态读取；按歌曲、歌手、专辑搜索播放会扫描本机 Music 曲库，时间复杂度与曲库规模线性相关。执行搜索播放时只汇报当前播放结果，不输出无关曲库列表，避免暴露不必要的媒体资料。
+- 屏幕截图只调用系统截图命令生成一张当前全屏 PNG，时间和空间成本主要取决于屏幕分辨率；截图可能包含敏感信息，返回时只提供图片路径，不额外读取或转述图片内容。
+- 通知命令只调用 UserNotifications 提交一条本机立即通知，时间和空间复杂度为 O(1)；通知内容来自用户明确输入，不访问网络、不扫描本机数据，也不持久化通知内容。
