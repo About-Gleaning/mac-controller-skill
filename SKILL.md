@@ -1,6 +1,6 @@
 ---
 name: macos-controller
-description: Use when an agent needs to control local macOS apps from Codex through bundled CLIs, currently including Calendar, Notes, Reminders, Music, and screen capture.
+description: Use when an agent needs to control local macOS apps from Codex through bundled CLIs, currently including generic app/window control, Calendar, Notes, Reminders, Music, and screen capture.
 ---
 
 # macOS Controller
@@ -10,9 +10,39 @@ description: Use when an agent needs to control local macOS apps from Codex thro
 ## 前置条件
 
 - 仅适用于 macOS，本机需要存在目标系统应用。
-- 日历和提醒事项脚本使用 Apple EventKit Swift CLI，通知脚本使用 Apple UserNotifications Swift CLI，首次运行会自动构建本仓库内的 SwiftPM 可执行文件；备忘录和音乐脚本使用系统内置 `/usr/bin/osascript`。
-- 首次运行可能触发 macOS 隐私授权。若失败信息提示无权限，引导用户到「系统设置 > 隐私与安全性」中允许当前终端或 Codex 访问「日历」「提醒事项」「备忘录」或目标应用自动化控制；通知权限到「系统设置 > 通知」中允许。
+- 日历和提醒事项脚本使用 Apple EventKit Swift CLI，通知脚本使用 Apple UserNotifications Swift CLI，首次运行会自动构建本仓库内的 SwiftPM 可执行文件；通用 App、备忘录和音乐脚本使用系统内置 `/usr/bin/osascript`。
+- 首次运行可能触发 macOS 隐私授权。若失败信息提示无权限，引导用户到「系统设置 > 隐私与安全性」中允许当前终端或 Codex 访问「日历」「提醒事项」「备忘录」、目标应用自动化控制或「辅助功能」；通知权限到「系统设置 > 通知」中允许。
 - 本 skill 产生的文件类产物统一保存到 `/var/skills_artifacts/macos-controller/`。
+
+## 通用 App 命令
+
+使用 `scripts/apps.py` 安全控制本机 macOS 通用应用和窗口。适合日常打开应用、切换工作窗口、查看当前前台应用、隐藏干扰应用或普通退出应用；第一版不提供键盘输入、鼠标点击或强制退出。
+
+```bash
+python3 scripts/apps.py running
+python3 scripts/apps.py running --query "Safari" --limit 10
+python3 scripts/apps.py frontmost
+python3 scripts/apps.py open --name "Safari"
+python3 scripts/apps.py open --bundle-id "com.apple.Safari"
+python3 scripts/apps.py open --path "/Applications/Safari.app"
+python3 scripts/apps.py activate --name "Safari"
+python3 scripts/apps.py hide --name "Music"
+python3 scripts/apps.py quit --name "Preview"
+python3 scripts/apps.py windows --name "Safari"
+python3 scripts/apps.py focus-window --name "Safari" --index 1
+python3 scripts/apps.py focus-window --name "Safari" --title "工作台"
+```
+
+- `running`：列出正在运行的非后台 GUI 应用，支持 `--query`、`--limit`、`--offset`；`--limit` 范围为 1..50，`--offset` 范围为 0..500。
+- `frontmost`：读取当前前台应用。
+- `open`：启动或切换应用，支持 `--name`、`--bundle-id` 或 `--path` 三选一；`--path` 必须是绝对路径并指向 `.app` 目录，避免误打开普通文件。
+- `activate`：激活已运行应用；目标未运行时返回错误，不自动启动。
+- `hide`：隐藏已运行应用。
+- `quit`：请求应用普通退出，不强制结束进程，避免未保存内容丢失。
+- `windows`：列出指定应用窗口，返回窗口序号、标题和最小化状态。
+- `focus-window`：按 `--index` 或 `--title` 激活窗口；标题匹配到多个窗口时会报错，应先用 `windows` 查询后改用 `--index`。
+
+如果用户要求强制退出、发送快捷键、输入文本、点击 UI、批量关闭应用或读取应用内部内容，应说明当前不支持，不要直接手写 AppleScript 绕过脚本。窗口控制通常需要「辅助功能」权限；启动和退出部分应用可能需要「自动化」权限。
 
 ## 日历命令
 
@@ -160,6 +190,22 @@ python3 scripts/notifications.py send --title "构建完成" --subtitle "mac-con
 }
 ```
 
+通用 App 结果可能包含：
+
+- `apps`
+- `app`
+- `name`
+- `bundle_id`
+- `pid`
+- `frontmost`
+- `visible`
+- `windows`
+- `index`
+- `title`
+- `minimized`
+- `quit_requested`
+- `open_requested`
+
 提醒事项查询结果至少包含：
 
 - `id`
@@ -219,17 +265,20 @@ python3 scripts/notifications.py send --title "构建完成" --subtitle "mac-con
 
 ## 工作流
 
-1. 识别用户要控制的应用或系统能力：日历、备忘录、提醒事项、音乐、屏幕截图或通知。
-2. 如果要更新或完成提醒事项、更新或删除日程、追加备忘录，但用户没有提供 `id`，先用对应 `list` 查询候选项；第一页没有目标且 `has_more` 为 true 时，用 `next_offset` 继续翻页，再让用户确认目标。
-3. 构造最小命令参数；只传用户明确要求的字段。
-4. 执行脚本并读取 JSON 输出。
-5. 如果返回权限错误，提示用户到系统设置开启目标应用、自动化或屏幕录制权限，然后重试。
+1. 识别用户要控制的应用或系统能力：通用 App、日历、备忘录、提醒事项、音乐、屏幕截图或通知。
+2. 如果要激活或隐藏应用但用户没有给出明确应用名，先用 `scripts/apps.py running --query "<关键词>"` 查询候选项；如果要激活窗口但没有窗口序号，先用 `windows` 查询候选项，匹配多个时让用户确认。
+3. 如果要更新或完成提醒事项、更新或删除日程、追加备忘录，但用户没有提供 `id`，先用对应 `list` 查询候选项；第一页没有目标且 `has_more` 为 true 时，用 `next_offset` 继续翻页，再让用户确认目标。
+4. 构造最小命令参数；只传用户明确要求的字段。
+5. 执行脚本并读取 JSON 输出。
+6. 如果返回权限错误，提示用户到系统设置开启目标应用、辅助功能、自动化或屏幕录制权限，然后重试。
 
 ## 数据与安全
 
 - 本 skill 只操作本机 macOS 应用，不访问网络。
 - 更新、完成、删除和追加操作按唯一 `id` 定位，降低误修改、误删除和误追加风险。
+- 通用 App 控制只操作运行中进程和窗口元数据；`open` 不扫描磁盘应用库，`--path` 只允许 `.app` 目录；`quit` 只请求普通退出，不强制杀进程，降低未保存数据丢失风险。
 - 不输出无关日历、备忘录或提醒事项详情；查询默认使用近期窗口、未完成过滤、`--query`、`--calendar`、`--folder`、`--list`、较小 `--limit` 和 `--offset` 控制单次扫描范围。
+- 通用 App 的 `running` 查询只返回运行中的非后台 GUI 应用，时间复杂度与运行中应用数量线性相关；`frontmost`、`open`、`activate`、`hide` 和 `quit` 近似 O(1)；`windows` 和 `focus-window` 与目标应用窗口数量线性相关。
 - 日历查询使用 EventKit 时间范围检索，时间复杂度主要取决于查询窗口内的日程数量；默认 30 天窗口用于平衡日常可用性和本机数据最小暴露。
 - 备忘录查询通过 Notes AppleScript 扫描本机文件夹，时间复杂度与备忘录数量线性相关；执行查询时应优先传 `--query` 或 `--folder`。
 - 常规音乐控制只执行 O(1) 播放命令、音量调整和状态读取；按歌曲、歌手、专辑搜索播放会扫描本机 Music 曲库，时间复杂度与曲库规模线性相关。执行搜索播放时只汇报当前播放结果，不输出无关曲库列表，避免暴露不必要的媒体资料。
